@@ -1,0 +1,124 @@
+/* ==========================================================================
+   Verify Hire — base styles + design tokens
+   Direction: deep navy hero, electric-blue / cyan accents, calm light surfaces
+   for the report. Status colours are used consistently for meaning only.
+   ========================================================================== */
+:root {
+  /* Brand */
+  --navy-950: #060a18;
+  --navy-900: #0a1128;
+  --navy-800: #101a3a;
+  --primary: #2f5bea;
+  --primary-hover: #2549c8;
+  --primary-soft: #eaf0ff;
+  --primary-ink: #1d3f9e;
+  --accent: #22d3ee;
+  --violet: #7c5cff;
+
+  /* Surfaces & text (light report area) */
+  --bg: #f3f5fb;
+  --surface: #ffffff;
+  --surface-muted: #f7f8fd;
+  --border: #e2e6f2;
+  --border-strong: #cdd3e4;
+  --text: #0e1630;
+  --muted: #53607a;
+  --on-dark: #f4f6ff;
+  --on-dark-muted: #aeb8d6;
+
+  /* Status tones: tint / border / text / solid (+ glow for the verdict) */
+  --verified-bg: #e8f7ef;
+  --verified-border: #a9dcc0;
+  --verified-text: #11633a;
+  --verified-solid: #137c48;
+  --verified-glow: rgba(19, 124, 72, 0.22);
+
+  --partial-bg: #e9f0ff;
+  --partial-border: #b5c8fb;
+  --partial-text: #1d3f9e;
+  --partial-solid: #2f5bea;
+  --partial-glow: rgba(47, 91, 234, 0.24);
+
+  --needs-bg: #fff5e1;
+  --needs-border: #f0d08a;
+  --needs-text: #7a4400;
+  --needs-solid: #a85b00;
+  --needs-glow: rgba(200, 130, 10, 0.22);
+
+  --strong-bg: #fdeceb;
+  --strong-border: #f0b3b0;
+  --strong-text: #9b1c1c;
+  --strong-solid: #c0262d;
+  --strong-glow: rgba(192, 38, 45, 0.2);
+
+  --neutral-bg: #eef1f7;
+  --neutral-border: #d6dbe8;
+  --neutral-text: #36405a;
+  --neutral-solid: #5b6784;
+
+  /* Shape, depth, motion */
+  --radius-sm: 9px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --shadow-sm: 0 1px 2px rgba(14, 22, 48, 0.05), 0 1px 1px rgba(14, 22, 48, 0.03);
+  --shadow-md: 0 8px 24px -12px rgba(14, 22, 48, 0.16), 0 2px 6px rgba(14, 22, 48, 0.04);
+  --shadow-lg: 0 30px 60px -28px rgba(10, 17, 40, 0.45), 0 8px 20px -10px rgba(10, 17, 40, 0.18);
+  --ring: 0 0 0 4px rgba(47, 91, 234, 0.16);
+  --ease: 160ms ease;
+
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  color-scheme: light;
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+h1, h2, h3, h4, p, ul, ol, dl, dd {
+  margin: 0;
+}
+
+ul, ol {
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--primary-ink);
+}
+
+::selection {
+  background: rgba(47, 91, 234, 0.2);
+}
+
+:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
