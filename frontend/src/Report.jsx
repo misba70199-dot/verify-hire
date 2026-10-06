@@ -148,6 +148,227 @@ function VerdictCard({ report, result }) {
   );
 }
 
+/* ---------- 1b. why this verdict? (derived only from data already in the report) ---------- */
+
+const WHY_FRAMING = {
+  Verified: "Independent evidence supports this opportunity. This is what the verdict rests on.",
+  "Partially Verified": "Some details are corroborated, but the exact opportunity is not fully confirmed.",
+  "Needs Verification": "There is not enough independent evidence to confirm this opportunity yet.",
+  "Strong Warning": "Several indicators raise concern. They are signals to check, not proof of wrongdoing.",
+};
+
+// Max reasons per type for each verdict: [confirmed, unconfirmed, warning]
+const WHY_QUOTAS = {
+  Verified: { confirmed: 3, unconfirmed: 1, warning: 1 },
+  "Partially Verified": { confirmed: 2, unconfirmed: 1, warning: 1 },
+  "Needs Verification": { confirmed: 1, unconfirmed: 2, warning: 1 },
+  "Strong Warning": { confirmed: 1, unconfirmed: 1, warning: 3 },
+};
+
+// Which type leads for each verdict (also the display order)
+const WHY_ORDER = {
+  Verified: ["confirmed", "unconfirmed", "warning"],
+  "Partially Verified": ["confirmed", "unconfirmed", "warning"],
+  "Needs Verification": ["unconfirmed", "warning", "confirmed"],
+  "Strong Warning": ["warning", "unconfirmed", "confirmed"],
+};
+
+const WHY_MAX = 4;
+
+function wordSet(text) {
+  return new Set(str(text).toLowerCase().match(/[a-z0-9]{3,}/g) || []);
+}
+
+function similar(a, b) {
+  const x = wordSet(a);
+  const y = wordSet(b);
+  if (x.size === 0 || y.size === 0) return false;
+  let shared = 0;
+  x.forEach((w) => y.has(w) && (shared += 1));
+  return shared / (x.size + y.size - shared) >= 0.5;
+}
+
+function reasonCandidates(report) {
+  const out = { confirmed: [], unconfirmed: [], warning: [] };
+  const add = (type, label, text, ids) => {
+    const clean = str(text).trim();
+    if (!clean) return;
+    const candidate = { type, label, text: clean, ids: arr(ids) };
+    if (!out[type].some((c) => similar(`${c.label} ${c.text}`, `${label} ${clean}`))) out[type].push(candidate);
+  };
+
+  // Match / mismatch items carry a label, so they read best and are tried first.
+  const matches = [...report.matches].sort(
+    (a, b) => Number(/opportunity/i.test(b.item)) - Number(/opportunity/i.test(a.item))
+  );
+  matches.forEach((m) => {
+    const details = str(m.details);
+    if (m.status === "match") add("confirmed", m.item, details || "Reported as a match.", m.source_ids);
+    else if (m.status === "mismatch")
+      add("warning", `${m.item} (mismatch)`, details || "The evidence appears to conflict with what was submitted.", m.source_ids);
+    else add("unconfirmed", m.item, details || "Could not be independently confirmed.", m.source_ids);
+  });
+
+  report.redFlags.forEach((flag) => add("warning", "", flag, []));
+
+  report.findings.forEach((f) => {
+    const type = FINDINGS[f.type] ? f.type : "unconfirmed";
+    add(type, "", f.text, f.source_ids);
+  });
+  return out;
+}
+
+function pickReasons(candidates, verdict) {
+  const order = WHY_ORDER[verdict];
+  const quota = WHY_QUOTAS[verdict];
+  const taken = { confirmed: [], unconfirmed: [], warning: [] };
+  const chosen = [];
+  const take = (type) => {
+    const next = candidates[type][taken[type].length];
+    if (next) {
+      taken[type].push(next);
+      chosen.push(next);
+    }
+  };
+  // Pass 1: one reason of each type (so a warning is never crowded out), leading type first
+  order.forEach(take);
+  // Pass 2: more of each type, up to its quota and the overall cap
+  order.forEach((type) => {
+    while (taken[type].length < quota[type] && chosen.length < WHY_MAX && candidates[type][taken[type].length]) take(type);
+  });
+  return chosen.slice(0, WHY_MAX);
+}
+
+function evidenceFootprint(report, evidence, searchErrors) {
+  const parts = CATEGORIES.map((c) => ({
+    key: c.key,
+    label: c.key === "red_flags" ? "Red-flag search" : c.label,
+    fullLabel: report.coverage[c.key]?.label || c.label,
+    count: arr(evidence[c.key]).length,
+    failed: Boolean(searchErrors[c.key]) || report.coverage[c.key]?.status === "failed",
+  }));
+  return { parts, total: parts.reduce((sum, p) => sum + p.count, 0), failed: parts.filter((p) => p.failed) };
+}
+
+function buildWhy(report, evidence, searchErrors) {
+  const footprint = evidenceFootprint(report, evidence, searchErrors);
+  if (!report.aiAvailable) return { reasons: [], summary: "", footprint, unavailable: true, limited: true };
+
+  const chosen = pickReasons(reasonCandidates(report), report.verdict);
+
+  // Facts about the evidence itself (counts and failed searches), never new claims about the opportunity
+  const structural = [];
+  const direct = footprint.parts.filter((p) => p.key === "opportunity" || p.key === "official");
+  if (footprint.total === 0) {
+    structural.push({
+      type: "unconfirmed",
+      label: "Search coverage",
+      text: "No independent search results were returned, so there was nothing to corroborate this opportunity.",
+      ids: [],
+    });
+  } else if (direct.every((p) => p.count === 0)) {
+    structural.push({
+      type: "unconfirmed",
+      label: "Search coverage",
+      text: "The opportunity-listing and official-site searches returned no results.",
+      ids: [],
+    });
+  }
+  if (footprint.failed.length > 0) {
+    structural.push({
+      type: "unconfirmed",
+      label: "Search coverage",
+      text: `These searches could not be completed: ${footprint.failed.map((p) => p.fullLabel).join(", ")}. That evidence is missing; it is not a negative result.`,
+      ids: [],
+    });
+  }
+
+  let reasons;
+  if (report.verdict === "Needs Verification") reasons = [...structural, ...chosen].slice(0, WHY_MAX);
+  else if (structural.length > 0) reasons = [...chosen.slice(0, WHY_MAX - structural.length), ...structural];
+  else reasons = chosen;
+
+  const limited = reasons.length < 2 || footprint.total === 0;
+  if (reasons.length < 2) {
+    reasons = [
+      ...reasons,
+      {
+        type: "unconfirmed",
+        label: "Limited evidence",
+        text: "The report does not contain enough detail to explain this verdict further. Treat it as unconfirmed and use the next steps below.",
+        ids: [],
+      },
+    ];
+  }
+
+  const order = WHY_ORDER[report.verdict];
+  reasons = reasons
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => order.indexOf(a.r.type) - order.indexOf(b.r.type) || a.i - b.i)
+    .map(({ r }) => r);
+
+  // If the analysis produced no specific reasons, show its own summary sentence instead of inventing any
+  const summary = chosen.length === 0 ? report.verdictReason : "";
+  return { reasons, summary, footprint, unavailable: false, limited };
+}
+
+function WhyVerdict({ report, evidence, searchErrors }) {
+  const why = buildWhy(report, evidence, searchErrors);
+  const tone = VERDICTS[report.verdict].tone;
+  const { parts, total } = why.footprint;
+
+  return (
+    <section className={`r-section why why-${tone}`}>
+      <SectionTitle note={WHY_FRAMING[report.verdict]}>Why this verdict?</SectionTitle>
+      <div className="why-card">
+        {why.unavailable && (
+          <p className="why-note">
+            <span aria-hidden="true">ⓘ</span>
+            <span>
+              Automated analysis was unavailable, so no reasons can be drawn from the evidence. Review the sources
+              yourself and follow the next steps below.
+            </span>
+          </p>
+        )}
+        {!why.unavailable && why.limited && (
+          <p className="why-note">
+            <span aria-hidden="true">ⓘ</span>
+            <span>Independent evidence is limited here, so this verdict should be treated with caution.</span>
+          </p>
+        )}
+        {why.summary && <p className="why-summary">{why.summary}</p>}
+        {why.reasons.length > 0 && (
+          <ul className="why-list">
+            {why.reasons.map((reason, index) => {
+              const config = FINDINGS[reason.type] || FINDINGS.unconfirmed;
+              return (
+                <li className="why-item" key={index}>
+                  <Badge tone={config.tone} icon={config.icon}>{config.label}</Badge>
+                  <div className="why-text">
+                    {reason.label && <strong className="why-label">{reason.label}</strong>}
+                    <span>
+                      {reason.text}
+                      <Cites ids={reason.ids} />
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="why-basis">
+          {total > 0
+            ? `Based on ${total} independent search result${total === 1 ? "" : "s"} (${parts
+                .map((p) => (p.failed ? `${p.label} failed` : `${p.label} ${p.count}`))
+                .join(" · ")}). `
+            : "No independent search results were available. "}
+          These reasons are indicators to verify, not proof either way.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 /* ---------- 2. quick summary ---------- */
 
 function QuickSummary({ findings }) {
@@ -461,6 +682,7 @@ function Report({ result }) {
   return (
     <div className="report">
       <VerdictCard report={report} result={result} />
+      <WhyVerdict report={report} evidence={evidence} searchErrors={searchErrors} />
       <QuickSummary findings={report.findings} />
       <UserProvided user={user} urlDetails={result.url_details} />
       <WebEvidence evidence={evidence} coverage={report.coverage} searchErrors={searchErrors} />
